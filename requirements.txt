@@ -1,0 +1,6 @@
+fonttools>=4.60
+ufoLib2>=0.17
+fontmake>=3.10
+skia-pathops>=0.8
+brotli
+pillow
