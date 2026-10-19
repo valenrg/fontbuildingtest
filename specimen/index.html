@@ -3,40 +3,49 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fizzpop Specimen</title>
+<title>Mirrorball Specimen</title>
 <style>
-  @font-face { font-family: "Fizzpop"; font-weight: 300; src: url("../fonts/Fizzpop-Light.woff2") format("woff2"); }
-  @font-face { font-family: "Fizzpop"; font-weight: 400; src: url("../fonts/Fizzpop-Regular.woff2") format("woff2"); }
-  @font-face { font-family: "Fizzpop"; font-weight: 700; src: url("../fonts/Fizzpop-Bold.woff2") format("woff2"); }
-  :root { --bg: #fff7ef; --ink: #2b1d3a; --accent: #ff5c8a; }
+  @font-face { font-family: "Mirrorball"; font-weight: 100; src: url("../fonts/Mirrorball-Hairline.woff2") format("woff2"); }
+  @font-face { font-family: "Mirrorball"; font-weight: 300; src: url("../fonts/Mirrorball-Light.woff2") format("woff2"); }
+  @font-face { font-family: "Mirrorball"; font-weight: 400; src: url("../fonts/Mirrorball-Regular.woff2") format("woff2"); }
+  @font-face { font-family: "Mirrorball"; font-weight: 700; src: url("../fonts/Mirrorball-Bold.woff2") format("woff2"); }
+  @font-face { font-family: "Mirrorball"; font-weight: 900; src: url("../fonts/Mirrorball-Poster.woff2") format("woff2"); }
+  :root { --bg: #111; --ink: #f4f1ea; --accent: #ff4fa3; }
   body { margin: 0; padding: 32px 16px; background: var(--bg); color: var(--ink);
-         font-family: "Fizzpop", sans-serif; }
-  h1 { font-size: clamp(64px, 14vw, 180px); font-weight: 700; color: var(--accent); margin: 0; line-height: 1; }
-  p.sub { font-size: 24px; margin: 8px 0 40px; }
-  section { margin: 0 0 48px; }
-  .w300 { font-weight: 300; } .w400 { font-weight: 400; } .w700 { font-weight: 700; }
-  .big { font-size: clamp(36px, 7vw, 96px); line-height: 1.15; margin: 0 0 12px; }
-  .mid { font-size: 36px; line-height: 1.3; margin: 0 0 8px; }
+         font-family: "Mirrorball", sans-serif; }
+  h1 { font-size: clamp(64px, 16vw, 200px); font-weight: 900; color: var(--accent); margin: 0; line-height: .95; letter-spacing: -.01em; }
+  p.sub { font-size: 24px; font-weight: 300; margin: 12px 0 48px; }
+  section { margin: 0 0 56px; }
+  .w100 { font-weight: 100; } .w300 { font-weight: 300; } .w400 { font-weight: 400; } .w700 { font-weight: 700; } .w900 { font-weight: 900; }
+  .big { font-size: clamp(36px, 7vw, 96px); line-height: 1.1; margin: 0 0 12px; }
+  .mid { font-size: 34px; line-height: 1.3; margin: 0 0 6px; }
   .small { font-size: 22px; line-height: 1.4; margin: 0; max-width: 60ch; }
-  label { display: block; font-size: 14px; opacity: .6; margin-bottom: 4px; letter-spacing: .08em; }
-  textarea { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 48px; font-weight: 700;
-             border: 2px dashed var(--accent); background: transparent; color: inherit; padding: 12px; min-height: 160px; }
+  label { display: block; font-size: 13px; opacity: .55; margin-bottom: 6px; letter-spacing: .12em; font-weight: 400; }
+  textarea { width: 100%; box-sizing: border-box; font-family: inherit; font-size: 56px; font-weight: 900;
+             border: 2px dashed var(--accent); background: transparent; color: inherit; padding: 12px; min-height: 180px; }
 </style>
 </head>
 <body>
-  <h1>Fizzpop!</h1>
-  <p class="sub">A bubbly, bouncy display face in three weights.</p>
+  <h1>Mirrorball</h1>
+  <p class="sub">A tight geometric grotesque with a seventies disco flavour. Five weights, Hairline to Poster.</p>
+
+  <section>
+    <label>POSTER 900</label>
+    <p class="big w900">Disco light array. Channel 4 engaged</p>
+    <p class="mid w900">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
+    <p class="mid w900">abcdefghijklmnopqrstuvwxyz 0123456789</p>
+  </section>
 
   <section>
     <label>BOLD 700</label>
-    <p class="big w700">Sparkling fizzy lemonade &amp; jumbo gumdrops</p>
+    <p class="big w700">Neon pink synthesizer, voltage stable</p>
     <p class="mid w700">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
     <p class="mid w700">abcdefghijklmnopqrstuvwxyz 0123456789</p>
   </section>
 
   <section>
     <label>REGULAR 400</label>
-    <p class="big w400">Pack my box with five dozen liquor jugs</p>
+    <p class="big w400">Mirrorball spinning over the dance floor</p>
     <p class="mid w400">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
     <p class="mid w400">abcdefghijklmnopqrstuvwxyz 0123456789</p>
     <p class="small w400">The quick brown fox jumps over the lazy dog. !?&amp;@#%$ ()[] .,:; “‘’” -–— +=×/</p>
@@ -44,14 +53,19 @@
 
   <section>
     <label>LIGHT 300</label>
-    <p class="big w300">Candy clouds &amp; soda pop sunsets</p>
-    <p class="mid w300">ABCDEFGHIJKLMNOPQRSTUVWXYZ</p>
-    <p class="mid w300">abcdefghijklmnopqrstuvwxyz 0123456789</p>
+    <p class="big w300">Strobe lights pulsed across the floor</p>
+    <p class="mid w300">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz</p>
+  </section>
+
+  <section>
+    <label>HAIRLINE 100</label>
+    <p class="big w100">At 23:48 the sign began to glow</p>
+    <p class="mid w100">ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz</p>
   </section>
 
   <section>
     <label>TRY IT</label>
-    <textarea spellcheck="false">Type something sweet…</textarea>
+    <textarea spellcheck="false">Type something groovy…</textarea>
   </section>
 </body>
 </html>

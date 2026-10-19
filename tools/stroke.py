@@ -1,19 +1,15 @@
 """Stroke engine: skeletons made of straight lines and circular arcs are
-expanded into round-ended outlines and merged with boolean union.
+expanded into flat-ended (butt-capped) bands and merged with boolean union;
+optional cut polygons are subtracted afterwards to clip apexes, corners and
+terminals flat, or to carve ink-trap notches.
 
-Because every primitive is a line or a circular arc, the offset outline is
-exact (parallel lines / concentric arcs) and rotation keeps circles circular,
-so a glyph can be "bounced" (rotated + shifted) at the skeleton level.
-
-Strokes are expanded without caps (rectangles and annular sectors); a single
-round dot is then placed at every distinct endpoint. That way two strokes
-meeting at a point never contribute two identical circles to the union, a
-case in which Skia's boolean ops can silently return a wrong result.
+Line and arc offsets are exact (parallel lines / concentric arcs), so the
+result is clean cubic geometry, not flattened polygons.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pathops
 from fontTools.pens.areaPen import AreaPen
@@ -33,32 +29,32 @@ class Line:
     y0: float
     x1: float
     y1: float
-    hs: float = 1.0  # stroke-width scale for this primitive
+    w0: float = 1.0  # stroke-width scale at the start
+    w1: float = 1.0  # stroke-width scale at the end
 
     def points(self):
         return [(self.x0, self.y0), (self.x1, self.y1)]
 
-    def endpoints(self):
-        return [(self.x0, self.y0), (self.x1, self.y1)]
-
     def probes(self):
-        return [((self.x0 + self.x1) / 2, (self.y0 + self.y1) / 2)] + self.endpoints()
+        return [((self.x0 + self.x1) / 2, (self.y0 + self.y1) / 2)]
 
     def transformed(self, rot, cx, cy, dx, dy):
         x0, y0 = _rot(self.x0, self.y0, rot, cx, cy)
         x1, y1 = _rot(self.x1, self.y1, rot, cx, cy)
-        return Line(x0 + dx, y0 + dy, x1 + dx, y1 + dy, self.hs)
+        return Line(x0 + dx, y0 + dy, x1 + dx, y1 + dy, self.w0, self.w1)
 
 
 @dataclass
 class Arc:
-    """Circular arc, angles in degrees, counter-clockwise from a0 to a1."""
+    """Circular arc, angles in degrees, counter-clockwise from a0 to a1.
+    Its ends are cut radially (perpendicular to the stroke)."""
     cx: float
     cy: float
     r: float
     a0: float
     a1: float
-    hs: float = 1.0  # stroke-width scale for this primitive
+    w0: float = 1.0
+    w1: float = 1.0
 
     def points(self):
         return [(self.cx - self.r, self.cy - self.r), (self.cx + self.r, self.cy + self.r)]
@@ -67,17 +63,12 @@ class Arc:
         a = math.radians(deg)
         return (self.cx + self.r * math.cos(a), self.cy + self.r * math.sin(a))
 
-    def endpoints(self):
-        if abs(self.a1 - self.a0) >= 360 - 1e-9:
-            return []
-        return [self._at(self.a0), self._at(self.a1)]
-
     def probes(self):
-        return [self._at((self.a0 + self.a1) / 2)] + self.endpoints()
+        return [self._at((self.a0 + self.a1) / 2)]
 
     def transformed(self, rot, cx, cy, dx, dy):
         x, y = _rot(self.cx, self.cy, rot, cx, cy)
-        return Arc(x + dx, y + dy, self.r, self.a0 + rot, self.a1 + rot, self.hs)
+        return Arc(x + dx, y + dy, self.r, self.a0 + rot, self.a1 + rot, self.w0, self.w1)
 
 
 @dataclass
@@ -90,15 +81,28 @@ class Dot:
     def points(self):
         return [(self.cx - self.r, self.cy - self.r), (self.cx + self.r, self.cy + self.r)]
 
-    def endpoints(self):
-        return []
-
     def probes(self):
         return [(self.cx, self.cy)]
 
     def transformed(self, rot, cx, cy, dx, dy):
         x, y = _rot(self.cx, self.cy, rot, cx, cy)
         return Dot(x + dx, y + dy, self.r)
+
+
+@dataclass
+class Cut:
+    """A polygon subtracted from the glyph after the strokes are merged."""
+    pts: list = field(default_factory=list)
+
+    def points(self):
+        return []  # cuts do not count towards the skeleton bounds
+
+    def probes(self):
+        return []
+
+    def transformed(self, rot, cx, cy, dx, dy):
+        return Cut([(_rot(x, y, rot, cx, cy)[0] + dx, _rot(x, y, rot, cx, cy)[1] + dy)
+                    for x, y in self.pts])
 
 
 def _rot(x, y, deg, cx, cy):
@@ -132,13 +136,41 @@ def _arc_segments(path: pathops.Path, cx, cy, r, a0, a1):
         path.cubicTo(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1])
 
 
+def _smooth(t):
+    return t * t * (3 - 2 * t)
+
+
+def _tangent_quad(x0, y0, r0, x1, y1, r1):
+    """Quad bounded by the external tangents of discs (p0, r0) and (p1, r1)."""
+    dx, dy = x1 - x0, y1 - y0
+    d = math.hypot(dx, dy)
+    if d < 1e-6 or abs(r0 - r1) >= d:
+        return None
+    ux, uy = dx / d, dy / d
+    nx, ny = -uy, ux
+    sin_phi = (r0 - r1) / d
+    cos_phi = math.sqrt(1 - sin_phi * sin_phi)
+    mpx, mpy = cos_phi * nx + sin_phi * ux, cos_phi * ny + sin_phi * uy
+    mmx, mmy = -cos_phi * nx + sin_phi * ux, -cos_phi * ny + sin_phi * uy
+    p = pathops.Path()
+    p.moveTo(x0 + r0 * mpx, y0 + r0 * mpy)
+    p.lineTo(x1 + r1 * mpx, y1 + r1 * mpy)
+    p.lineTo(x1 + r1 * mmx, y1 + r1 * mmy)
+    p.lineTo(x0 + r0 * mmx, y0 + r0 * mmy)
+    p.close()
+    return p
+
+
 def stroke_line(seg: Line, h: float) -> pathops.Path | None:
-    """Rectangle of half-width h along the segment (no caps)."""
+    """Band of half-width h*w along the segment with flat ends."""
+    r0, r1 = h * seg.w0, h * seg.w1
+    if abs(r0 - r1) > 1e-6:
+        return _tangent_quad(seg.x0, seg.y0, r0, seg.x1, seg.y1, r1)
     dx, dy = seg.x1 - seg.x0, seg.y1 - seg.y0
     length = math.hypot(dx, dy)
     if length < 1e-6:
         return None
-    nx, ny = -dy / length * h, dx / length * h
+    nx, ny = -dy / length * r0, dx / length * r0
     p = pathops.Path()
     p.moveTo(seg.x0 + nx, seg.y0 + ny)
     p.lineTo(seg.x1 + nx, seg.y1 + ny)
@@ -148,33 +180,39 @@ def stroke_line(seg: Line, h: float) -> pathops.Path | None:
     return p
 
 
-def stroke_arc(seg: Arc, h: float) -> list[pathops.Path]:
-    """Annular sector of half-width h along the arc (no caps)."""
+def stroke_arc(seg: Arc, hbase: float) -> list[pathops.Path]:
+    """Annular sector of half-width h along the arc with radial flat ends."""
     a0, a1 = math.radians(seg.a0), math.radians(seg.a1)
+    cx, cy = seg.cx, seg.cy
+    if abs(seg.w0 - seg.w1) > 1e-6:
+        n = max(2, int(math.ceil(abs(a1 - a0) / math.radians(7.5))))
+        out = []
+        for i in range(n):
+            t0, t1 = i / n, (i + 1) / n
+            ang0 = a0 + (a1 - a0) * t0
+            ang1 = a0 + (a1 - a0) * t1
+            r0 = hbase * (seg.w0 + (seg.w1 - seg.w0) * _smooth(t0))
+            r1 = hbase * (seg.w0 + (seg.w1 - seg.w0) * _smooth(t1))
+            x0, y0 = cx + seg.r * math.cos(ang0), cy + seg.r * math.sin(ang0)
+            x1, y1 = cx + seg.r * math.cos(ang1), cy + seg.r * math.sin(ang1)
+            q = _tangent_quad(x0, y0, r0, x1, y1, r1)
+            if q is not None:
+                out.append(q)
+            if i:
+                out.append(fill_dot(Dot(x0, y0, r0)))
+        return out
+    h = hbase * seg.w0
     if a1 < a0:
         a0, a1 = a1, a0
     full = (a1 - a0) >= TAU - 1e-9
-    cx, cy = seg.cx, seg.cy
-    if seg.r <= h + 2:
-        # Inner offset would collapse: approximate with short segments plus
-        # dots. The union of capsules along the arc is exactly the Minkowski
-        # sum of the arc with the pen disk, so this is still exact.
-        n = max(2, int(math.ceil((a1 - a0) / math.radians(12))))
-        out = []
-        for i in range(n):
-            t0 = a0 + (a1 - a0) * i / n
-            t1 = a0 + (a1 - a0) * (i + 1) / n
-            x0, y0 = cx + seg.r * math.cos(t0), cy + seg.r * math.sin(t0)
-            x1, y1 = cx + seg.r * math.cos(t1), cy + seg.r * math.sin(t1)
-            out.append(stroke_line(Line(x0, y0, x1, y1), h))
-            out.append(fill_dot(Dot(x1, y1, h)))
-        return [o for o in out if o is not None]
-    ro, ri = seg.r + h, seg.r - h
+    ro, ri = seg.r + h, max(seg.r - h, 0.0)
     if full:
         outer = pathops.Path()
         outer.moveTo(cx + ro, cy)
         _arc_segments(outer, cx, cy, ro, 0, TAU)
         outer.close()
+        if ri <= 0.5:
+            return [outer]
         inner = pathops.Path()
         inner.moveTo(cx + ri, cy)
         _arc_segments(inner, cx, cy, ri, 0, TAU)
@@ -185,8 +223,11 @@ def stroke_arc(seg: Arc, h: float) -> list[pathops.Path]:
     p = pathops.Path()
     p.moveTo(cx + ro * math.cos(a0), cy + ro * math.sin(a0))
     _arc_segments(p, cx, cy, ro, a0, a1)
-    p.lineTo(cx + ri * math.cos(a1), cy + ri * math.sin(a1))
-    _arc_segments(p, cx, cy, ri, a1, a0)
+    if ri <= 0.5:
+        p.lineTo(cx, cy)
+    else:
+        p.lineTo(cx + ri * math.cos(a1), cy + ri * math.sin(a1))
+        _arc_segments(p, cx, cy, ri, a1, a0)
     p.close()
     return [p]
 
@@ -199,35 +240,42 @@ def fill_dot(d: Dot) -> pathops.Path:
     return p
 
 
+def polygon(pts) -> pathops.Path:
+    p = pathops.Path()
+    p.moveTo(*pts[0])
+    for pt in pts[1:]:
+        p.lineTo(*pt)
+    p.close()
+    return p
+
+
 # --------------------------------------------------------------------------
 # Skeleton -> outline
 # --------------------------------------------------------------------------
-def _pieces(prims, h):
-    pieces = []
-    dots = {}
-    for pr in prims:
-        if isinstance(pr, Line):
-            piece = stroke_line(pr, h * pr.hs)
-            if piece is not None:
-                pieces.append(piece)
-        elif isinstance(pr, Arc):
-            pieces.extend(stroke_arc(pr, h * pr.hs))
-        elif isinstance(pr, Dot):
-            pieces.append(fill_dot(pr))
-            continue
-        else:
-            raise TypeError(pr)
-        for x, y in pr.endpoints():
-            key = (round(x, 2), round(y, 2), round(h * pr.hs, 2))
-            dots[key] = Dot(x, y, h * pr.hs)
-    pieces.extend(fill_dot(d) for d in dots.values())
-    # Every piece must share one orientation, otherwise nonzero winding
-    # cancels where a clockwise piece overlaps a counter-clockwise one.
+def _orient(pieces):
     for piece in pieces:
         piece.fillType = pathops.FillType.WINDING
         if piece.clockwise:
             piece.reverse()
     return pieces
+
+
+def _pieces(prims, h):
+    pieces, cuts = [], []
+    for pr in prims:
+        if isinstance(pr, Line):
+            piece = stroke_line(pr, h)
+            if piece is not None:
+                pieces.append(piece)
+        elif isinstance(pr, Arc):
+            pieces.extend(stroke_arc(pr, h))
+        elif isinstance(pr, Dot):
+            pieces.append(fill_dot(pr))
+        elif isinstance(pr, Cut):
+            cuts.append(polygon(pr.pts))
+        else:
+            raise TypeError(pr)
+    return _orient(pieces), _orient(cuts)
 
 
 def _valid_union(result, pieces, prims):
@@ -252,22 +300,32 @@ def _valid_union(result, pieces, prims):
 def outline(prims, h: float) -> pathops.Path:
     if not prims:
         return pathops.Path()
-    # If Skia still trips on some coincidence, retry with an invisible
-    # sub-unit rotation/shift of the whole skeleton.
+    # Retry with an invisible sub-unit rotation/shift of the whole skeleton
+    # if Skia trips on coincident geometry.
     for attempt in range(12):
         if attempt == 0:
             trial = prims
         else:
             rot = 0.017 * attempt * (1 if attempt % 2 else -1)
             trial = [pr.transformed(rot, 0, 0, 0.011 * attempt, 0.007 * attempt) for pr in prims]
-        pieces = _pieces(trial, h)
+        pieces, cuts = _pieces(trial, h)
+        if not pieces:
+            return pathops.Path()
         result = pathops.Path()
         try:
             pathops.union(pieces, result.getPen())
         except pathops.PathOpsError:
             continue
-        if _valid_union(result, pieces, trial):
-            return result
+        if not _valid_union(result, pieces, [p for p in trial if not isinstance(p, Cut)]):
+            continue
+        if cuts:
+            clipped = pathops.Path()
+            try:
+                pathops.difference([result], cuts, clipped.getPen())
+            except pathops.PathOpsError:
+                continue
+            result = clipped
+        return result
     raise RuntimeError("boolean union failed after retries")
 
 
@@ -280,13 +338,6 @@ def skeleton_bounds(prims):
     if not xs:
         return 0, 0, 0, 0
     return min(xs), min(ys), max(xs), max(ys)
-
-
-def bounce(prims, rot_deg: float, dy: float):
-    """Rotate the skeleton about its centre and shift it vertically."""
-    x0, y0, x1, y1 = skeleton_bounds(prims)
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    return [pr.transformed(rot_deg, cx, cy, 0, dy) for pr in prims]
 
 
 def draw_into_glyph(path: pathops.Path, glyph):
